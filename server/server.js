@@ -228,7 +228,7 @@ server.on('connection', function (socket) {
 					}
 					if (state != STATES.LOBBY){
 						playersPending[player.id] = player;
-						player.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE, ["A match is currently going on, You can wait here until the next one."]));
+						player.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE, [`A match of ${song} is currently going on, You can wait here until the next one.`]));
 					}
 					if (socket.admin){
 						player.admin=true;
@@ -400,7 +400,10 @@ function end_game(){
 				playersJoined = `${playersJoined} ${p.nickname}`
 			}
 		}
-		if (playersJoined != ""){pl.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`${playersJoined}\njoined while you where playing, if none of them appear, Please rejoin`]));}
+		if (playersJoined != ""){ // Message notifying player about other players joining
+			pl.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`${playersJoined}`]));
+			pl.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`joined while you where playing, if none of them appear, Please rejoin`]));
+		}
 		}
 		pl.ready = false;
 	}
@@ -456,7 +459,7 @@ custom_console.handle = function (input,player){
 	var args = separated.slice(1);
 	let log = custom_console.log;
 	if (command == '') return;
-	if (player){log=function(message){
+	if (player){log=function(message){ // Redefines log if player executed a command, Redirects all messages to player and seperates into seperate messages for line breaks
 			custom_console.log(message)
 			var sep =message.split('\n'); 
 			for (var i = sep.length - 1; i >= 0; i--) {
@@ -512,7 +515,7 @@ custom_console.handle = function (input,player){
 					let inst_path2 = 'songs/' + song_name + '/Inst.ogg'
 					
 					// Load the voices & inst from file
-					// If they don't exists, a DENY packet will be sent when a player requests them
+					// If they don't exist, a DENY packet will be sent when a player requests them
 					voices_packet = null;
 					if (fs.existsSync(voices_path))
 						voices_packet = Sender.CreatePacket(packets.SEND_VOICES, [fs.readFileSync(voices_path)]);
@@ -549,6 +552,7 @@ custom_console.handle = function (input,player){
 				let audio = fs.existsSync(`data/${folder}/Voices.ogg`) || fs.existsSync(`data/${folder}/Inst.ogg`);
 				
 				log("Set song to " + folder + "/" + song + ". " + (audio ? ("Found audio files at data/" + folder) : ("Did not find audio files at data/" + folder)) + ".");
+				broadcast(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`Song was set to ${song}`]));
 				break;
 			case "count":
 				log("Players: " + Object.keys(players).length + "\nReady Count: " + in_game_count);
