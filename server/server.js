@@ -36,7 +36,8 @@ folder = "";
 voices_packet = null;
 inst_packet = null;
 chart_packet = null;
-
+voting = false; // WIll be used eventially
+voteList = {};
 
 function create_player(socket, nickname){
 	var player = {
@@ -302,7 +303,11 @@ server.on('connection', function (socket) {
 					}
 					
 					if (message.length > 0 && message[0] != ' ' && message.length <= 80){
-						if (message.startsWith('/') && player.admin){
+						
+						if (message.startsWith('/')){
+							commandHandle(message.substring(1),player)
+							return;
+						}else if (message.startsWith('!') && player.admin){
 							custom_console.handle(message.substring(1),player)
 							return;
 						}else if (Date.now() - player.last_chat > settings.chat_speed){
@@ -432,6 +437,7 @@ server.listen(PORT);
 const commands = {
 	"start": "Start the game",
 	"setsong": "Set the song to be played - takes folder and filename as arguments",
+	"randsong": "Selects a random song - Takes 'hard','h','e','easy' as arguments for mode",
 	"count": "Count the number of players online, and number or players that are ready",
 	"list": "Display a list of IDs and player names",
 	
@@ -451,7 +457,88 @@ const commands = {
 	
 	"exit": "Close the server"
 };
+const allCommands = {
+	"vote":"Vote for a song if voting is active"
+};
 
+var getRandomSong = function(modein){
+	
+	let songList = fs.readdirSync('data/');
+	if(!songList){custom_console.log('Something went wrong trying to query /data!');return;}
+	let song;
+	let mode = "";
+	if(modein == 1){mode="-hard"}else if(modein ==-1){mode='-easy'}
+	let loops = 0;
+	do{
+		let tempsong = songList[Math.floor(Math.random()*songList.length)]
+		if (fs.statSync(`data/${tempsong}`).isDirectory()){
+			if (fs.existsSync(`data/${tempsong}/${tempsong}${mode}.json`)){
+				song={"song":tempsong,"json":`${tempsong}${mode}`};
+			}else{custom_console.log(`${tempsong} doesn't have a ${tempsong}${mode}.json, You might want to fix this!`);}
+		}
+	}while(!song)
+	return song
+}
+
+var commandHandle = function (input,player){
+
+	var separated = input.split(" ");
+	var command = separated[0]
+	var args = separated.slice(1);
+	var reply=function(message){ // Directs all messages to player and seperates into seperate messages for line breaks
+				custom_console.log(message)
+				var sep =message.split('\n'); 
+				for (var i = sep.length - 1; i >= 0; i--) {
+					player.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`${sep[i]}`]));
+				}
+
+				
+			}
+	if (command == "help"){
+		var help_string = "";
+		for (const [cmd, desc] of Object.entries(allCommands)){
+			help_string += cmd + ": " + desc + "\n";
+		}
+		log(help_string.substr(0, help_string.length - 1));
+		return;
+	}
+	separated = input.split(" ");
+	command = separated[0];
+	args = separated.slice(1);
+	if (command in allCommands){
+		switch (command){
+			case "vote":
+				reply('Unfinished');
+				// if (voting){
+
+				// }else{
+				// 	reply("Voting is not enabled at the moment!")
+				// }
+		}
+	}else{
+		reply("Couldn't recognize command '" + command + "'. Try using 'help'");
+	}
+}
+var setSong = function(file,fold){
+	if (!file){
+		log('No song to search for. File, Folder')
+		return;
+	}
+	if (!fold) {
+		fold = `${file.match(/([A-z0-9_\-]+)(?=-)/g)}` 
+		if (!fold || fold == ""){fold=file}
+		if (!fs.existsSync(`data/${fold}/${fold}.json`)) {log(`Couldn't find 'data/${fold}/${file}.json'\nTry manually specifying file,folder`); return;}
+	}
+	if (!fs.existsSync(`data/${fold}/${file}.json`)) {log(`Couldn't find 'data/${fold}/${file}.json'`); return;}
+	song = file;
+	folder = fold;
+	
+	let audio = fs.existsSync(`data/${folder}/Voices.ogg`) || fs.existsSync(`data/${folder}/Inst.ogg`);
+	
+	log("Set song to " + folder + "/" + song + ". " + (audio ? ("Found audio files at data/" + folder) : ("Did not find audio files at data/" + folder)) + ".");
+	broadcast(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`Song was set to ${song}`]));
+	return;
+}
 
 custom_console.handle = function (input,player){
 	var separated = input.split(" ");
@@ -535,24 +622,19 @@ custom_console.handle = function (input,player){
 					log("Game already in progress");
 				}
 				break;
+			case "randsong":
+				let mode = 0;
+				if(args[0]){if (args[0] == 'hard' || args[0] == 'h'){mode=1;}else if (args[0] == 'easy' || args[0] == 'e'){mode=-1;}}
+				let tempSong = getRandomSong(mode);
+				if (!tempSong?.song){log("Unable to get a song!");return;}
+				setSong(tempSong.json,tempSong.song)
+				break;
 			case "setsong":
 				if (!args[0]){
 					log('No song to search for. File, Folder')
-					break;
+					return;
 				}
-				if (args.length < 2) {
-					args[1] = `${args[0].match(/([A-z0-9_\-]+)(?=-)/g)}` 
-					if (!args[1] || args[1] == ""){args[1]=args[0]}
-					if (!fs.existsSync(`data/${args[1]}/${args[0]}.json`)) {log(`Couldn't find 'data/${args[1]}/${args[0]}.json'\nTry manually specifying file,folder`); break;}
-				}
-				if (!fs.existsSync(`data/${args[1]}/${args[0]}.json`)) {log(`Couldn't find 'data/${args[1]}/${args[0]}.json'`); break;}
-				song = args[0];
-				folder = args[1];
-				
-				let audio = fs.existsSync(`data/${folder}/Voices.ogg`) || fs.existsSync(`data/${folder}/Inst.ogg`);
-				
-				log("Set song to " + folder + "/" + song + ". " + (audio ? ("Found audio files at data/" + folder) : ("Did not find audio files at data/" + folder)) + ".");
-				broadcast(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`Song was set to ${song}`]));
+				setSong(args[0],args[1]);
 				break;
 			case "count":
 				log("Players: " + Object.keys(players).length + "\nReady Count: " + in_game_count);
