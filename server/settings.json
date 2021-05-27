@@ -1,9 +1,10 @@
 {
-"port": 9876,
-"password": "admin",
+"port": 8000,
+"password": "password", "":"Keep blank for no pass",
+"adminpass": "admin",  "":"Admin password, Used instead of the normal pass to get admin access",
 "keep_alive": 10000,
 "wait": 180000,
-"chat_speed": 1000,
+"chat_speed": 1,
 "safe_frames": 10,
 "max_players": 24
 }
