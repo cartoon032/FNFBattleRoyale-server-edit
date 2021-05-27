@@ -1,7 +1,7 @@
 const fs = require('fs');
 const net = require('net');
 const custom_console = require('./custom_console');
-const log = custom_console.log;
+let log = custom_console.log;
 
 const Receiver = require('./receiver');
 const Sender = require('./sender');
@@ -17,6 +17,7 @@ const server = net.createServer();
 
 
 players = {} // Holds sockets that have gotten to the lobby
+playersPending = {} // Holds players that need to be registered to other clients
 id = 0; // Increasing number that is used to assing IDs to players.
 
 const STATES = {
@@ -86,7 +87,7 @@ function create_player(socket, nickname){
 		if (player.socket && destroy_socket){
 			player.socket.end(Sender.CreatePacket(packets.DISCONNECT, []), () => {player.socket.destroy()});
 		}
-			
+		if (playersPending[player.id]){delete playersPending[player.id];}
 		// Remove the player object.
 		delete players[player.id];
 		
@@ -134,6 +135,7 @@ server.on('connection', function (socket) {
 	receiver.on('data', function (packetId, data) {
 		var socket = receiver.socket;
 		var player = socket.player;
+
 		
 		switch (packetId){
 			// Setup
@@ -147,21 +149,25 @@ server.on('connection', function (socket) {
 				break;
 			case packets.SEND_PASSWORD:
 				var pwd = data[0];
-				if (socket.verified && pwd == settings.password){
+				if (socket.verified && (pwd == settings.adminpass || pwd == settings.password || settings.password == '')){
 					if (Object.keys(players).length >= settings.max_players){
 						socket.write(Sender.CreatePacket(packets.PASSWORD_CONFIRM, [3])); // Game already full
 						socket.destroy();
 						break;
-					}else if (state != STATES.LOBBY){
-						socket.write(Sender.CreatePacket(packets.PASSWORD_CONFIRM, [1])); // Game already in progress
-						socket.destroy();
-						break;
+					}
+					// else if (state != STATES.LOBBY){
+					// 	socket.write(Sender.CreatePacket(packets.PASSWORD_CONFIRM, [1])); // Game already in progress
+					// 	socket.destroy();
+					// 	break;
+					// }
+					if (pwd == settings.adminpass){
+						socket.admin = true;
 					}
 					// Authorized
 					socket.authorized = true;
 					socket.write(Sender.CreatePacket(packets.PASSWORD_CONFIRM, [0]));
 				}else{
-					socket.write(Sender.CreatePacket(packets.PASSWORD_CONFIRM, [2])); // Wrong password
+					socket.write(Sender.CreatePacket(packets.PASSWORD_CONFIRM, [4])); // Wrong password
 					socket.destroy();
 				}
 				break;
@@ -190,10 +196,10 @@ server.on('connection', function (socket) {
 						}
 					}
 					
-					if (state != STATES.LOBBY){
-						socket.write(Sender.CreatePacket(packets.NICKNAME_CONFIRM, [2])); // Game already in progress
-						break;
-					}
+					// if (state != STATES.LOBBY){
+					// 	socket.write(Sender.CreatePacket(packets.NICKNAME_CONFIRM, [2])); // Game already in progress
+					// 	break;
+					// }
 					
 					// Nickname accepted
 					socket.nickname = nick;
@@ -210,6 +216,7 @@ server.on('connection', function (socket) {
 					// Create player object for this player
 					player = create_player(socket, socket.nickname);
 					delete socket['nickname'];
+
 					
 					// Tell all players that this new player joined.
 					player.broadcast(Sender.CreatePacket(packets.BROADCAST_NEW_PLAYER, [player.id, player.nickname]));
@@ -219,7 +226,16 @@ server.on('connection', function (socket) {
 							socket.write(Sender.CreatePacket(packets.BROADCAST_NEW_PLAYER, [p.id, p.nickname]));
 						}
 					}
-					
+					if (state != STATES.LOBBY){
+						playersPending[player.id] = player;
+						player.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE, ["A match is currently going on, You can wait here until the next one."]));
+					}
+					if (socket.admin){
+						player.admin=true;
+						log(`${player.nickname} registered as an admin!`);
+						player.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE, ["You are an admin! Do /help for help."]));
+					}
+					log(`${player.nickname} Joined!`)
 					// This is used so that the player knows when the previous players are done being sent, and it knows it's own position in the list.
 					socket.write(Sender.CreatePacket(packets.END_PREV_PLAYERS, []));
 				}
@@ -268,7 +284,9 @@ server.on('connection', function (socket) {
 					player.ready = false;
 					if (in_game_count == 0){
 						end_game();
+						
 					}
+
 				}
 				break;
 			
@@ -284,7 +302,10 @@ server.on('connection', function (socket) {
 					}
 					
 					if (message.length > 0 && message[0] != ' ' && message.length <= 80){
-						if (Date.now() - player.last_chat > settings.chat_speed){
+						if (message.startsWith('/') && player.admin){
+							custom_console.handle(message.substring(1),player)
+							return;
+						}else if (Date.now() - player.last_chat > settings.chat_speed){
 							player.broadcast(Sender.CreatePacket(packets.BROADCAST_CHAT_MESSAGE, [player.id, message]));
 							player.last_chat = Date.now();
 							return;
@@ -368,9 +389,22 @@ function start_game(){
 
 function end_game(){
 	state = STATES.LOBBY;
-	for (p of Object.values(players)){
-		p.ready = false;
+	for (pl of Object.values(players)){
+		
+		if (!playersPending[pl.id] && pl.ready){
+		let playersJoined = "";
+		for (let p of Object.values(playersPending)){
+			if (p.id != pl.id){
+				log(`${pl.nickname} Doesn't know about ${p.nickname}. Telling them they exist!`);
+				pl.socket.write(Sender.CreatePacket(packets.BROADCAST_NEW_PLAYER, [p.id, p.nickname]));
+				playersJoined = `${playersJoined} ${p.nickname}`
+			}
+		}
+		if (playersJoined != ""){pl.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`${playersJoined}\njoined while you where playing, if none of them appear, Please rejoin`]));}
+		}
+		pl.ready = false;
 	}
+	playersPending = {}
 	in_game_count = 0;
 	log("Game finished");
 }
@@ -416,13 +450,22 @@ const commands = {
 };
 
 
-custom_console.handle = function (input){
+custom_console.handle = function (input,player){
 	var separated = input.split(" ");
 	var command = separated[0]
 	var args = separated.slice(1);
-	
+	let log = custom_console.log;
 	if (command == '') return;
-	
+	if (player){log=function(message){
+			custom_console.log(message)
+			var sep =message.split('\n'); 
+			for (var i = sep.length - 1; i >= 0; i--) {
+				player.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`${sep[i]}`]));
+			}
+
+			
+		}	
+	}
 	if (command == "help"){
 		var help_string = "";
 		for (const [cmd, desc] of Object.entries(commands)){
@@ -431,7 +474,9 @@ custom_console.handle = function (input){
 		log(help_string.substr(0, help_string.length - 1));
 		return;
 	}
-	
+	separated = input.split(" ");
+	command = separated[0];
+	args = separated.slice(1);
 	if (command in commands){
 		switch (command){
 			case "start":
@@ -446,7 +491,7 @@ custom_console.handle = function (input){
 						return;
 					}
 					
-					log("Starting game");
+					log(`Starting game with ${folder}/${song}`);
 					
 					// Load the chart from file
 					chart = fs.readFileSync('data/' + folder + '/' + song + '.json');
@@ -488,7 +533,15 @@ custom_console.handle = function (input){
 				}
 				break;
 			case "setsong":
-				if (args.length < 2) {log("Expected 2 arguments: file, folder"); break;}
+				if (!args[0]){
+					log('No song to search for. File, Folder')
+					break;
+				}
+				if (args.length < 2) {
+					args[1] = `${args[0].match(/([A-z0-9_\-]+)(?=-)/g)}` 
+					if (!args[1] || args[1] == ""){args[1]=args[0]}
+					if (!fs.existsSync(`data/${args[1]}/${args[0]}.json`)) {log(`Couldn't find 'data/${args[1]}/${args[0]}.json'\nTry manually specifying file,folder`); break;}
+				}
 				if (!fs.existsSync(`data/${args[1]}/${args[0]}.json`)) {log(`Couldn't find 'data/${args[1]}/${args[0]}.json'`); break;}
 				song = args[0];
 				folder = args[1];
