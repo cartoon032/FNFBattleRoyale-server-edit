@@ -9,7 +9,7 @@ This is a modification to the main Node server, adds some QOL improvements like 
 # Credits
 ### Modification to server
 
--[Superpowers04](https://github.com/superpowers04)
+- [Superpowers04](https://github.com/superpowers04)
 
 ### Kade Engine
 
