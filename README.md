@@ -20,6 +20,9 @@ This is a modification to the main Node server, adds some QOL improvements like 
 
 - [XieneDev](https://www.youtube.com/c/XieneDev) - Programmer
 
+### Inspiration/Many ideas
+
+- [Namazso's C# Server](https://github.com/namazso/FNFBRServer/)
 
 # Other pages
 
