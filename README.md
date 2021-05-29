@@ -1,7 +1,7 @@
 # Friday Night Funkin': Battle Royale alternative node server
 
 This is a modification to the main Node server, adds some QOL improvements like disabling the password, having admins, etc while trying to stay compatible with the base mod
-<br>This is setup the same way as the normal server
+<br>This is setup the same way as the normal server. For uptodate guides and more, Look at the base mod:
 
 [**THE BASE MOD**](https://github.com/XieneDev/FunkinBattleRoyale)
 
