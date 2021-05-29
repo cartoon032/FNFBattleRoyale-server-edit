@@ -234,7 +234,7 @@ server.on('connection', function (socket) {
 					if (socket.admin){
 						player.admin=true;
 						log(`${player.nickname} registered as an admin!`);
-						player.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE, ["You are an admin! Do /help for help."]));
+						player.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE, ["You are an admin! Do !help for help."]));
 					}
 					log(`${player.nickname} Joined!`)
 					// This is used so that the player knows when the previous players are done being sent, and it knows it's own position in the list.
