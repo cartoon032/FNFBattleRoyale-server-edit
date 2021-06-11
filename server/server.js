@@ -37,7 +37,7 @@ voices_packet = null;
 inst_packet = null;
 chart_packet = null;
 voting = false; // WIll be used eventially
-voteList = {};
+voteList = [];
 
 function create_player(socket, nickname){
 	var player = {
@@ -51,12 +51,31 @@ function create_player(socket, nickname){
 	};
 	socket.player = player;
 	players[id] = player;
+	player.supported = false;
 	id++;
 	
 	player.broadcast = function(buffer){
 		// Send message to all players but this one.
 		for (let p of Object.values(players)){
 			if (p.id != player.id){
+				p.socket.write(buffer);
+			}
+		}
+	}
+	
+	
+	player.broadcastSupported = function(buffer){
+		// Send message to all players but this one.
+		for (let p of Object.values(players)){
+			if (p.id != player.id && p.supported){
+				p.socket.write(buffer);
+			}
+		}
+	}
+	player.broadcastUnsupported = function(buffer){
+		// Send message to all players but this one.
+		for (let p of Object.values(players)){
+			if (p.id != player.id && !p.supported){
 				p.socket.write(buffer);
 			}
 		}
@@ -90,10 +109,13 @@ function create_player(socket, nickname){
 		}
 		if (playersPending[player.id]){delete playersPending[player.id];}
 		// Remove the player object.
+		custom_console.log(`${player.nickname}(${player.id}) left`);
+
 		delete players[player.id];
 		
 		if (state == STATES.PREPARING)
 			broadcast(Sender.CreatePacket(packets.PLAYERS_READY, [in_game_count]));
+
 	}
 	
 	return player;
@@ -103,6 +125,20 @@ function broadcast(buffer){
 	// Send message to all players.
 	for (let p of Object.values(players)){
 		p.socket.write(buffer);
+	}
+}
+function broadcastSupported(buffer){
+	// Send message to all players.
+	for (let p of Object.values(players)){
+		if (p.supported){p.socket.write(buffer);}
+		
+	}
+}
+function broadcastUnsupported(buffer){
+	// Send message to all players.
+	for (let p of Object.values(players)){
+		if (!p.supported){p.socket.write(buffer);}
+		
 	}
 }
 
@@ -136,7 +172,9 @@ server.on('connection', function (socket) {
 	receiver.on('data', function (packetId, data) {
 		var socket = receiver.socket;
 		var player = socket.player;
-
+		if (!player){
+			custom_console.log(`A client without a player is sending a packet ${packetId}`);
+		}
 		
 		switch (packetId){
 			// Setup
@@ -150,6 +188,7 @@ server.on('connection', function (socket) {
 				break;
 			case packets.SEND_PASSWORD:
 				var pwd = data[0];
+				
 				if (socket.verified && (pwd == settings.adminpass || pwd == settings.password || settings.password == '')){
 					if (Object.keys(players).length >= settings.max_players){
 						socket.write(Sender.CreatePacket(packets.PASSWORD_CONFIRM, [3])); // Game already full
@@ -236,12 +275,14 @@ server.on('connection', function (socket) {
 						log(`${player.nickname} registered as an admin!`);
 						player.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE, ["You are an admin! Do !help for help."]));
 					}
+					player.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE, ["'ceabf544' This is a compatibility message, Ignore me!"])); // Check for support for misses and such
 					log(`${player.nickname} Joined!`)
 					// This is used so that the player knows when the previous players are done being sent, and it knows it's own position in the list.
 					socket.write(Sender.CreatePacket(packets.END_PREV_PLAYERS, []));
 				}
 				break;
 			
+
 			// Gaming
 			case packets.GAME_READY:
 				if (player && !player.ready && state == STATES.PREPARING){
@@ -278,6 +319,20 @@ server.on('connection', function (socket) {
 					// Broadcast score. Yeah, there's no server-side verification, too lazy to implement it... :/
 					player.broadcast(Sender.CreatePacket(packets.BROADCAST_SCORE, [player.id, score]));
 				}
+				break;
+			case packets.SEND_CURRENT_INFO:
+				if (player && state == STATES.PLAYING){
+					var score = data[0];
+					var misses = data[1];
+					var accuracy = data[2];
+					// Broadcast score. Yeah, there's no server-side verification, too lazy to implement it... :/
+
+					player.broadcastUnsupported(Sender.CreatePacket(packets.BROADCAST_SCORE, [player.id, score]));
+					player.broadcastSupported(Sender.CreatePacket(packets.BROADCAST_CURRENT_INFO, [player.id, score,misses,accuracy]));
+				}
+				break;
+			case packets.KEYPRESSED:
+				player.broadcastSupported(Sender.CreatePacket(packets.KEYPRESSED,data))
 				break;
 			case packets.GAME_END:
 				if (player && player.ready && state == STATES.PLAYING){
@@ -351,10 +406,14 @@ server.on('connection', function (socket) {
 					}
 				}
 				break;
-			
+			case packets.SUPPORTED:
+				if (player){
+					player.supported = true
+				}
+				break;
 			// Error
 			default:
-				log("Wrong Packet ID from client " + player.id);
+				custom_console.log(`Invalid packet ${packetId} from ${player.id}`)
 				socket.destroy();
 				break;
 		}
@@ -438,8 +497,11 @@ const commands = {
 	"start": "Start the game",
 	"setsong": "Set the song to be played - takes folder and filename as arguments",
 	"randsong": "Selects a random song - Takes 'hard','h','e','easy' as arguments for mode",
+	"listsongs": "Lists all valid songs- Takes 'hard','h','e','easy' as arguments for mode",
 	"count": "Count the number of players online, and number or players that are ready",
 	"list": "Display a list of IDs and player names",
+	"enable_vote": "Enables voting - Takes 'hard','h','e','easy' as arguments for mode...\n and a count for song count",
+	"disable_vote": "Disables voting",
 	
 	"force_start": "Forces the game to start. Any player that isn't ready will be disconnected from the server",
 	"force_end": "Forces the game to end. All players will be sent back to the lobby",
@@ -478,6 +540,38 @@ var getRandomSong = function(modein){
 		}
 	}while(!song)
 	return song
+}
+var createVote = function(mode,count){
+	voteList =[];
+	if (!count){count=3;}
+	for (var i = count; i >= 0; i--) {
+		let songset = false;
+		while(!songset){
+			let cursong = getRandomSong(mode);
+			if (cursong && !(cursong in voteList)){voteList.push(cursong);songset=true;}
+		}
+		
+	}
+	broadcastVotelist()
+}
+var broadcastVotelist = function(player){
+	if(!voting){
+		if(log){
+			log("Voting is not enabled!");
+		}else{
+			custom_console.log("Tried to broadcast voteList when voting is not in session!");
+		}
+		return;}
+	let rep = broadcast;
+	if(player){
+		rep=function(message){player.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[message]));}
+	}
+	rep("-----Vote list-----");
+	for (var i = 0; i < voteList.length; i++) {
+		rep(`${i} - ${voteList[i].songjson}`);
+	}
+	rep("-------------------");
+	rep("Use '/vote (ID)' to vote for a song");
 }
 
 var commandHandle = function (input,player){
@@ -623,11 +717,25 @@ custom_console.handle = function (input,player){
 				}
 				break;
 			case "randsong":
-				let mode = 0;
+				var mode = 0;
 				if(args[0]){if (args[0] == 'hard' || args[0] == 'h'){mode=1;}else if (args[0] == 'easy' || args[0] == 'e'){mode=-1;}}
 				let tempSong = getRandomSong(mode);
 				if (!tempSong?.song){log("Unable to get a song!");return;}
 				setSong(tempSong.json,tempSong.song)
+				break;
+			case "listsongs":
+				var mode = "";
+				if(args[0]){if (args[0] == 'hard' || args[0] == 'h'){mode="-hard";}else if (args[0] == 'easy' || args[0] == 'e'){mode='-easy';}}
+				var songlist = fs.readdirSync('data/');
+				log("----Song List----");
+				for (var i = songlist.length - 1; i >= 0; i--) {
+					if (fs.statSync(`data/${songlist[i]}`).isDirectory()){
+						if (fs.existsSync(`data/${songlist[i]}/${songlist[i]}${mode}.json`)){
+							log(`- ${songlist[i]}${mode}`);
+						}
+					}
+				}
+				log("----------------");
 				break;
 			case "setsong":
 				if (!args[0]){
@@ -647,7 +755,27 @@ custom_console.handle = function (input,player){
 				}
 				log(output.substr(0, output.length - 1));
 				break;
-			
+			case "enablevote":
+				return log('This command is disabled!');
+				if(voting){
+					if(player){
+						log("Voting is already enabled, Do '/votelist' to get the current song list.");
+					}else{
+						log("Voting is already enabled.");
+					}
+					return;
+				}
+				voting = true;
+				var mode = 0;
+				if(args[0]){if (args[0] == 'hard' || args[0] == 'h'){mode=1;}else if (args[0] == 'easy' || args[0] == 'e'){mode=-1;}}
+				createVote(mode);
+				break;
+			case "disablevote":
+				if(!voting){return log("Voting is already disabled!");}
+				voting = false;
+				votingList = [];
+				break;		
+
 			case "force_start":
 				if (state == STATES.PREPARING){
 					for (let p of Object.values(players)){
