@@ -91,36 +91,40 @@ class Receiver extends events.EventEmitter{
 	}
 	
 	consume(n){
-		// This function returns a Buffer from the n bytes that were received longest ago, and clears and updates the buffers accordingly.
-		if (n == 0) return null;
+		try{
+				// This function returns a Buffer from the n bytes that were received longest ago, and clears and updates the buffers accordingly.
+				if (n == 0) return null;
+				
+				this.bufferedBytes -= n;
+				
+				if (n == this.buffers[0].length) return this.buffers.shift();
+				
+				if (n < this.buffers[0].length) {
+				  const buf = this.buffers[0];
+				  this.buffers[0] = buf.slice(n);
+				  return buf.slice(0, n);
+				}
+				
+				const dst = Buffer.allocUnsafe(n);
 		
-		this.bufferedBytes -= n;
+				do {
+				  const buf = this.buffers[0];
+				  const offset = dst.length - n;
 		
-		if (n == this.buffers[0].length) return this.buffers.shift();
+				  if (n >= buf.length) {
+					dst.set(this._buffers.shift(), offset);
+				  } else {
+					dst.set(new Uint8Array(buf.buffer, buf.byteOffset, n), offset);
+					this._buffers[0] = buf.slice(n);
+				  }
 		
-		if (n < this.buffers[0].length) {
-		  const buf = this.buffers[0];
-		  this.buffers[0] = buf.slice(n);
-		  return buf.slice(0, n);
-		}
+				  n -= buf.length;
+				} while (n > 0);
 		
-		const dst = Buffer.allocUnsafe(n);
-
-		do {
-		  const buf = this.buffers[0];
-		  const offset = dst.length - n;
-
-		  if (n >= buf.length) {
-			dst.set(this._buffers.shift(), offset);
-		  } else {
-			dst.set(new Uint8Array(buf.buffer, buf.byteOffset, n), offset);
-			this._buffers[0] = buf.slice(n);
-		  }
-
-		  n -= buf.length;
-		} while (n > 0);
-
-		return dst;
+				return dst;
+			}catch{
+				console.log("Caught error with reciever");
+			}
 	}
 }
 
