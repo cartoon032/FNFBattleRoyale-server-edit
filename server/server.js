@@ -162,11 +162,12 @@ function keep_alive(){
 keep_alive();
 
 server.on('connection', function (socket) {
+	var receiver = new Receiver(socket);
 	if (banlist.includes(socket.remoteAddress))
 		socket.destroy();
 	
 	
-	var receiver = new Receiver(socket);
+	
 	
 	
 	receiver.on('data', function (packetId, data) {
@@ -358,7 +359,7 @@ server.on('connection', function (socket) {
 					}
 					
 					if (message.length > 0 && message[0] != ' ' && message.length <= 80){
-						
+						custom_console.log(`${player.nickname} : ${message}`)
 						if (message.startsWith('/')){
 							commandHandle(message.substring(1),player)
 							return;
@@ -419,7 +420,10 @@ server.on('connection', function (socket) {
 		}
 	});
 	
-	
+	receiver.on('connection', function (packetId) {
+		log("Ay, a connection!");
+	});
+
 	function client_leave(){
 		var player = socket.player;
 		
@@ -618,15 +622,15 @@ var setSong = function(file,fold){
 		log('No song to search for. File, Folder')
 		return;
 	}
+	var _folder = fold;
 	if (!fold) {
-		fold = `${file.match(/([A-z0-9_\-]+)(?=-)/g)}` 
-		if (!fold || fold == ""){fold=file}
-		if (!fs.existsSync(`data/${fold}/${fold}.json`)) {log(`Couldn't find 'data/${fold}/${file}.json'\nTry manually specifying file,folder`); return;}
+		_folder = `${file.match(/([A-z0-9_\-]+)(?=-)/g)}`
+		if (!_folder || _folder == "" || _folder == "null"){_folder=file}
+		if (!fs.existsSync(`data/${_folder}/${_folder}.json`)) {log(`Couldn't find 'data/${_folder}/${file}.json'\nTry manually specifying file,folder`); return;}
 	}
-	if (!fs.existsSync(`data/${fold}/${file}.json`)) {log(`Couldn't find 'data/${fold}/${file}.json'`); return;}
+	if (!fs.existsSync(`data/${_folder}/${file}.json`)) {log(`Couldn't find 'data/${_folder}/${file}.json'`); return;}
 	song = file;
-	folder = fold;
-	
+	folder = _folder;
 	let audio = fs.existsSync(`data/${folder}/Voices.ogg`) || fs.existsSync(`data/${folder}/Inst.ogg`);
 	
 	log("Set song to " + folder + "/" + song + ". " + (audio ? ("Found audio files at data/" + folder) : ("Did not find audio files at data/" + folder)) + ".");
