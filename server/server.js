@@ -678,7 +678,16 @@ custom_console.handle = function (input,player){
 						log("No players joined");
 						return;
 					}
-					
+					if (Object.keys(players).length == 2){
+						var invertnotes = false; 
+						for (let p of Object.values(players)){
+							p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,"'32d5d167' set invertnotes " + invertnotes))
+							invertnotes = !invertnotes;Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,"'32d5d167' set invertnotes false")
+						}
+					}else if (Object.keys(players).length >= 2){
+						broadcastSupported(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,"'32d5d167' set invertnotes false"));
+					}
+
 					log(`Starting game with ${folder}/${song}`);
 					
 					// Load the chart from file
