@@ -506,6 +506,7 @@ const commands = {
 	"list": "Display a list of IDs and player names",
 	"enable_vote": "Enables voting - Takes 'hard','h','e','easy' as arguments for mode...\n and a count for song count",
 	"disable_vote": "Disables voting",
+	"invert": "Inverts the chart for a specific player, takes a name/id and a bool",
 	
 	"force_start": "Forces the game to start. Any player that isn't ready will be disconnected from the server",
 	"force_end": "Forces the game to end. All players will be sent back to the lobby",
@@ -678,14 +679,14 @@ custom_console.handle = function (input,player){
 						log("No players joined");
 						return;
 					}
-					if (Object.keys(players).length == 2){
+					if (Object.keys(players).length == 2 && settings.auto_swap_sides){
 						var invertnotes = false; 
 						for (let p of Object.values(players)){
-							p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,"'32d5d167' set invertnotes " + invertnotes))
-							invertnotes = !invertnotes;Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,"'32d5d167' set invertnotes false")
+							p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,["'32d5d167' set invertnotes " + invertnotes]))
+							invertnotes = !invertnotes;
 						}
-					}else if (Object.keys(players).length >= 2){
-						broadcastSupported(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,"'32d5d167' set invertnotes false"));
+					}else if (Object.keys(players).length >= 2 && settings.auto_swap_sides){
+						broadcastSupported(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,["'32d5d167' set invertnotes false"]));
 					}
 
 					log(`Starting game with ${folder}/${song}`);
@@ -820,6 +821,20 @@ custom_console.handle = function (input,player){
 					if (p.nickname == args[0]){
 						log("Kicked '" + p.nickname + "' from the game");
 						p.destroy();
+						return;
+					}
+				}
+				
+				log("Couldn't find player '" + args[0] + "'");
+				
+				break;
+			case "invert":
+				if (args.length < 2) {log("Expected 2 arguments: nickname,bool"); break;};
+				
+				for (let p of Object.values(players)){
+					if (p.nickname == args[0]){
+						p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`'32d5d167' set invertnotes ${args[1]}`]));
+						log(`set invert charts of ${args[0]} to ${args[1]}`);
 						return;
 					}
 				}
