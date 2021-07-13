@@ -7,5 +7,6 @@
 "chat_speed": 1,
 "safe_frames": 10,
 "max_players": 24,
-"auto_swap_sides":false
+"auto_swap_sides":false,
+"sync_players":true
 }
