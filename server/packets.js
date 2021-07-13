@@ -35,33 +35,36 @@ class Packet{
 		// This function transforms a Buffer (bytes) into an array with the appropiate arguments, as defined in packets.json
 		var args = [];
 		var offset = 0;
-		
-		for (var type of this.types){
-			switch (type){
-				case DataType.UINT:
-					args.push(buf.readUInt32BE(offset));
-					break;
-				case DataType.INT:
-					args.push(buf.readInt32BE(offset));
-					break;
-				case DataType.UBYTE:
-					args.push(buf.readUInt8(offset));
-					break;
-				case DataType.BYTE:
-					args.push(buf.readInt8(offset));
-					break;
-				case DataType.STRING:
-					var string_length = buf.readUInt16BE(offset);
-					args.push(buf.toString('utf8', offset + 2, offset + 2 + string_length));
-					offset += string_length;
-					break;
-				case DataType.FILE:
-					// The server should never receive a file, so this is left unimplemented.
-					break;
+		try{
+			for (var type of this.types){
+				switch (type){
+					case DataType.UINT:
+						args.push(buf.readUInt32BE(offset));
+						break;
+					case DataType.INT:
+						args.push(buf.readInt32BE(offset));
+						break;
+					case DataType.UBYTE:
+						args.push(buf.readUInt8(offset));
+						break;
+					case DataType.BYTE:
+						args.push(buf.readInt8(offset));
+						break;
+					case DataType.STRING:
+						var string_length = buf.readUInt16BE(offset);
+						args.push(buf.toString('utf8', offset + 2, offset + 2 + string_length));
+						offset += string_length;
+						break;
+					case DataType.FILE:
+						// The server should never receive a file, so this is left unimplemented.
+						break;
+				}
+				
+				offset += type.size;
 			}
-			
-			offset += type.size;
-		}
+		}catch{
+				console.log("bro that's kinda dring");
+			}
 		
 		return args;
 	}
