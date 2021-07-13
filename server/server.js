@@ -333,7 +333,7 @@ server.on('connection', function (socket) {
 				}
 				break;
 			case packets.KEYPRESSED:
-				player.broadcastSupported(Sender.CreatePacket(packets.KEYPRESSED,data))
+				if (settings.sync_players){ player.broadcastSupported(Sender.CreatePacket(packets.KEYPRESSED,data));}
 				break;
 			case packets.GAME_END:
 				if (player && player.ready && state == STATES.PLAYING){
