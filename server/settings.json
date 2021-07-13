@@ -6,5 +6,6 @@
 "wait": 180000,
 "chat_speed": 1,
 "safe_frames": 10,
-"max_players": 24
+"max_players": 24,
+"auto_swap_sides":false
 }
