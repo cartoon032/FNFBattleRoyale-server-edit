@@ -506,7 +506,8 @@ const commands = {
 	"list": "Display a list of IDs and player names",
 	"enable_vote": "Enables voting - Takes 'hard','h','e','easy' as arguments for mode...\n and a count for song count",
 	"disable_vote": "Disables voting",
-	"invert": "Inverts the chart for a specific player, takes a name/id and a bool",
+	"invert": "Inverts the chart for a specific player, takes a name and a bool",
+	"set": "Change settings for a specific player, takes a name, the setting, and the value",
 	
 	"force_start": "Forces the game to start. Any player that isn't ready will be disconnected from the server",
 	"force_end": "Forces the game to end. All players will be sent back to the lobby",
@@ -835,6 +836,20 @@ custom_console.handle = function (input,player){
 					if (p.nickname == args[0]){
 						p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`'32d5d167' set invertnotes ${args[1]}`]));
 						log(`set invert charts of ${args[0]} to ${args[1]}`);
+						return;
+					}
+				}
+				
+				log("Couldn't find player '" + args[0] + "'");
+				
+				break;
+			case "set":
+				if (args.length < 3) {log("Expected 3 arguments: nickname,setting,value"); break;};
+				
+				for (let p of Object.values(players)){
+					if (p.nickname == args[0]){
+						p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`'32d5d167' set ${args[1]} ${args[2]}`]));
+						log(`set ${args[1]} of ${args[0]} to ${args[2]}`);
 						return;
 					}
 				}
