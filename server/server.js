@@ -897,11 +897,17 @@ custom_console.handle = function (input,player){
 						log(`set invert charts of ${args[0]} to ${args[1]}`);
 						return;
 					}
+					else if (args[0] == "@a")
+						p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`'32d5d167' set clientscript ${args[1]}`]));
 					else if (args[0] == "@s" && p.nickname == player.nickname){
 						p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`'32d5d167' set invertnotes ${args[1]}`]));
 						log(`set invert charts of ${player.nickname} to ${args[1]}`);
 						return;
 					}
+				}
+				if (args[0] == "@a"){
+					log(`set invert charts for everyone to ${args[1]}`);
+					return;
 				}
 				
 				log("Couldn't find player '" + args[0] + "'");
@@ -1026,11 +1032,14 @@ custom_console.handle = function (input,player){
 						log(`set ${args[0]} to team ` + (ChangeTo == 0 ? "Blue" : "Red"));
 						IsGood = true;
 					}
-					else if (args[0] == "@a")
+					else if (args[0] == "@a"){
 						p.team = ChangeTo;
+						IsGood = true;
+					}
 					else if (args[0] == "@s" && p.nickname == player.nickname){
 						p.team = ChangeTo;
 						log(`set ${args[1]} of ${player.nickname} to ${args[2]}`);
+						IsGood = true;
 					}
 				}
 				if(IsGood){
