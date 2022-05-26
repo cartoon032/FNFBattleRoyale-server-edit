@@ -19,6 +19,13 @@ const server = net.createServer();
 players = {} // Holds sockets that have gotten to the lobby
 playersPending = {} // Holds players that need to be registered to other clients
 id = 0; // Increasing number that is used to assing IDs to players.
+team = 0;
+RedScore = 0;
+RedMember = 0;
+BlueScore = 0;
+BlueMember = 0;
+BiggerTeam = 0;
+CalcScore = false;
 
 const STATES = {
 	'LOBBY': 0,
@@ -48,11 +55,16 @@ function create_player(socket, nickname){
 		'alive': true,
 		'last_chat': 0,
 		'muted': mutelist.includes(socket.remoteAddress),
+		'team': team,
+		'score': 0
 	};
 	socket.player = player;
 	players[id] = player;
 	player.supported = false;
 	id++;
+	team++;
+	if(team > 1)
+		team = 0;
 	
 	player.broadcast = function(buffer){
 		// Send message to all players but this one.
@@ -176,7 +188,7 @@ server.on('connection', function (socket) {
 		if (!player){
 			custom_console.log(`A client without a player is sending a packet ${packetId}`);
 		}
-		
+
 		switch (packetId){
 			// Setup
 			case packets.SEND_CLIENT_TOKEN:
@@ -276,8 +288,9 @@ server.on('connection', function (socket) {
 						log(`${player.nickname} registered as an admin!`);
 						player.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE, ["You are an admin! Do !help for help."]));
 					}
+					player.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE, ["You are on " + (player.team == 0 ? "Blue" : "Red") + " Team (this is an experiment feature)"]));
+					log(`${player.nickname} Joined on `+ (player.team == 0 ? "Blue!" : "Red!"))
 					player.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE, ["'ceabf544' This is a compatibility message, Ignore me!"])); // Check for support for misses and such
-					log(`${player.nickname} Joined!`)
 					// This is used so that the player knows when the previous players are done being sent, and it knows it's own position in the list.
 					socket.write(Sender.CreatePacket(packets.END_PREV_PLAYERS, []));
 				}
@@ -286,6 +299,13 @@ server.on('connection', function (socket) {
 
 			// Gaming
 			case packets.GAME_READY:
+				for (let p of Object.values(players))
+					p.score = 0;
+				RedScore = 0;
+				RedMember = 0;
+				BlueScore = 0;
+				BlueMember = 0;
+				CalcScore = false;
 				if (player && !player.ready && state == STATES.PREPARING){
 					player.ready = true;
 					in_game_count++;
@@ -317,6 +337,7 @@ server.on('connection', function (socket) {
 			case packets.SEND_SCORE:
 				if (player && state == STATES.PLAYING){
 					var score = data[0];
+					player.score = data[0];
 					// Broadcast score. Yeah, there's no server-side verification, too lazy to implement it... :/
 					player.broadcast(Sender.CreatePacket(packets.BROADCAST_SCORE, [player.id, score]));
 				}
@@ -326,6 +347,7 @@ server.on('connection', function (socket) {
 					var score = data[0];
 					var misses = data[1];
 					var accuracy = data[2];
+					player.score = data[0];
 					// Broadcast score. Yeah, there's no server-side verification, too lazy to implement it... :/
 
 					player.broadcastUnsupported(Sender.CreatePacket(packets.BROADCAST_SCORE, [player.id, score]));
@@ -345,6 +367,27 @@ server.on('connection', function (socket) {
 					}
 
 				}
+				if(!CalcScore)
+				{
+					for (let p of Object.values(players)){
+						if(p.team == 0 && p.score != 0)
+						{
+							BlueScore += p.score;
+							BlueMember += 1;
+						}
+						else if (p.score != 0)
+						{
+							RedScore += p.score;
+							RedMember += 1;
+						}
+					}
+					CalcScore = true;
+				}
+				if(BlueMember == 0 || RedMember == 0)
+					break;
+				BiggerTeam = Math.max(BlueMember,RedMember);
+				player.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE, [`Blue Score : ${BlueScore * (Math.round((BiggerTeam / BlueMember) * 100) / 100)}`]));
+				player.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE, [`Red Score : ${RedScore * (Math.round((BiggerTeam / RedMember) * 100) / 100)}`]));
 				break;
 			
 			// Chat
@@ -507,8 +550,13 @@ const commands = {
 	"enable_vote": "Enables voting - Takes 'hard','h','e','easy' as arguments for mode...\n and a count for song count",
 	"disable_vote": "Disables voting",
 	"invert": "Inverts the chart for a specific player, takes a name and a bool",
+	"script": "turn client script on or off",
+	"input": "turn input sync on or off",
+	"speed": "change Song Speed only support on T Mod Version",
+	"sendhscript": "yes",
 	"set": "Change settings for a specific player, takes a name, the setting, and the value",
-	
+	"setteam": "Set Team",
+
 	"force_start": "Forces the game to start. Any player that isn't ready will be disconnected from the server",
 	"force_end": "Forces the game to end. All players will be sent back to the lobby",
 	
@@ -765,10 +813,21 @@ custom_console.handle = function (input,player){
 			case "list":
 				if (Object.keys(players).length == 0) {log("No players"); break;}
 				var output = "";
+				BlueMember = 0;
+				RedMember = 0;
 				for (p of Object.values(players)){
-					output += p.id + ": " + p.nickname + "\n";
+					output += p.id + ": " + p.nickname + " On Team " + (p.team == 0 ? "Blue" : "Red") + "\n";
+					if(p.team == 0)
+						BlueMember += 1;
+					else
+						RedMember += 1;
 				}
-				log(output.substr(0, output.length - 1));
+				if(BlueMember == 0 || RedMember == 0){
+					log(`One of the Team is Empty\n` + output.substr(0, output.length - 1));
+					break;
+				}
+				BiggerTeam = Math.max(BlueMember,RedMember);
+				log((BlueMember == RedMember ? `The Team is balanced` : BlueMember < RedMember ? `Blue Team will get ${Math.round((BiggerTeam / BlueMember) * 100) / 100} Score Multiplier` : `Red Team will get ${Math.round((BiggerTeam / RedMember) * 100) / 100} Score Multiplier`) + `\n` + output.substr(0, output.length - 1));
 				break;
 			case "enablevote":
 				return log('This command is disabled!');
@@ -838,6 +897,86 @@ custom_console.handle = function (input,player){
 						log(`set invert charts of ${args[0]} to ${args[1]}`);
 						return;
 					}
+					else if (args[0] == "@s" && p.nickname == player.nickname){
+						p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`'32d5d167' set invertnotes ${args[1]}`]));
+						log(`set invert charts of ${player.nickname} to ${args[1]}`);
+						return;
+					}
+				}
+				
+				log("Couldn't find player '" + args[0] + "'");
+				
+				break;
+			case "script":
+				if (args.length < 2) {log("Expected 2 arguments: nickname,bool"); break;};
+				
+				for (let p of Object.values(players)){
+					if (p.nickname == args[0]){
+						p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`'32d5d167' set clientscript ${args[1]}`]));
+						log(`set client script of ${args[0]} to ${args[1]}`);
+						return;
+					}
+					else if (args[0] == "@a")
+					p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`'32d5d167' set clientscript ${args[1]}`]));
+					else if (args[0] == "@s" && p.nickname == player.nickname){
+						p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`'32d5d167' set clientscript ${args[1]}`]));
+						log(`set client script of ${player.nickname} to ${args[1]}`);
+						return;
+					}
+				}
+				if (args[0] == "@a"){
+					log(`set client script for everyone to ${args[1]}`);
+					return;
+				}
+				
+				log("Couldn't find player '" + args[0] + "'");
+				
+				break;
+			case "input":
+				if (args.length < 2) {log("Expected 2 arguments: nickname,bool"); break;};
+				
+				for (let p of Object.values(players)){
+					if (p.nickname == args[0]){
+						p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`'32d5d167' set inputsync ${args[1]}`]));
+						log(`set input sync of ${args[0]} to ${args[1]}`);
+						return;
+					}
+					else if (args[0] == "@a")
+						p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`'32d5d167' set inputsync ${args[1]}`]));
+					else if (args[0] == "@s" && p.nickname == player.nickname){
+						p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`'32d5d167' set inputsync ${args[1]}`]));
+						log(`set input sync of ${player.nickname} to ${args[1]}`);
+						return;
+					}
+				}
+				if (args[0] == "@a"){
+					log(`set input sync for everyone to ${args[1]}`);
+					return;
+				}
+				
+				log("Couldn't find player '" + args[0] + "'");
+				
+				break;
+			case "speed":
+				if (args.length < 2) {log("Expected 2 arguments: nickname,value"); break;};
+				
+				for (let p of Object.values(players)){
+					if (p.nickname == args[0]){
+						p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`'32d5d167' set speed ${args[1]}`]));
+						log(`set Song Speed of ${args[0]} to ${args[1]}`);
+						return;
+					}
+					else if (args[0] == "@a")
+						p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`'32d5d167' set speed ${args[1]}`]));
+					else if (args[0] == "@s" && p.nickname == player.nickname){
+						p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`'32d5d167' set speed ${args[1]}`]));
+						log(`set Song Speed of ${player.nickname} to ${args[1]}`);
+						return;
+					}
+				}
+				if (args[0] == "@a"){
+					log(`set Song Speed for everyone to ${args[1]}`);
+					return;
 				}
 				
 				log("Couldn't find player '" + args[0] + "'");
@@ -850,6 +989,71 @@ custom_console.handle = function (input,player){
 					if (p.nickname == args[0]){
 						p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`'32d5d167' set ${args[1]} ${args[2]}`]));
 						log(`set ${args[1]} of ${args[0]} to ${args[2]}`);
+						return;
+					}
+					else if (args[0] == "@a")
+					p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`'32d5d167' set ${args[1]} ${args[2]}`]));
+					else if (args[0] == "@s" && p.nickname == player.nickname){
+						p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`'32d5d167' set ${args[1]} ${args[2]}`]));
+						log(`set ${args[1]} of ${player.nickname} to ${args[2]}`);
+						return;
+					}
+				}
+				if (args[0] == "@a"){
+					log(`set ${args[1]} of Everyone to ${args[2]}`);
+					return;
+				}
+				
+				log("Couldn't find player '" + args[0] + "'");
+				
+				break;
+			case "setteam":
+				if (args.length < 2) {log("Expected 2 arguments: nickname,team"); break;};
+				var IsGood = false;
+				var ChangeTo = 0;
+				if(args[1] == "Blue" || args[1] == "blue" || args[1] == 0)
+					ChangeTo = 0;
+				else if(args[1] == "Red" || args[1] == "red" || args[1] == 1)
+					ChangeTo = 1;
+				else
+				{
+					log(`The Team doesn't exist`);
+					break;
+				}
+				for (let p of Object.values(players)){
+					if (p.nickname == args[0]){
+						p.team = ChangeTo;
+						log(`set ${args[0]} to team ` + (ChangeTo == 0 ? "Blue" : "Red"));
+						IsGood = true;
+					}
+					else if (args[0] == "@a")
+						p.team = ChangeTo;
+					else if (args[0] == "@s" && p.nickname == player.nickname){
+						p.team = ChangeTo;
+						log(`set ${args[1]} of ${player.nickname} to ${args[2]}`);
+					}
+				}
+				if(IsGood){
+					for (let p of Object.values(players)){
+						switch(args[0]){
+						case "@a": p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`Everyone have been move to `+ (ChangeTo == 0 ? "Blue" : "Red")]))
+						case "@s": p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`${players.nickname} have been move to `+ (ChangeTo == 0 ? "Blue" : "Red")]))
+						default: p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`${args[0]} have been move to `+ (ChangeTo == 0 ? "Blue" : "Red")]))
+						}
+					}
+					return;
+				}
+				
+				log("Couldn't find player '" + args[0] + "'");
+				
+				break;
+			case "sendhscript":
+				if (args.length < 3) {log("Expected 3 arguments: nickname,setting,value"); break;};
+				
+				for (let p of Object.values(players)){
+					if (p.nickname == args[0]){
+						p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`'32d5d167' sendhscript ${args[1]} ${args[2]}`]));
+						log(`Send ${args[1]} to ${args[0]} contain ${args[2]}`);
 						return;
 					}
 				}
