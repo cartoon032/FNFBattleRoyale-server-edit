@@ -10,6 +10,7 @@ This is a modification to the main Node server, adds some QOL improvements like 
 ### Modification to server
 
 - [Superpowers04](https://github.com/superpowers04)
+- [NayToon](http://github.com/cartoon032)
 
 ### Kade Engine
 
