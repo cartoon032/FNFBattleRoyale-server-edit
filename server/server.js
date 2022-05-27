@@ -20,10 +20,17 @@ players = {} // Holds sockets that have gotten to the lobby
 playersPending = {} // Holds players that need to be registered to other clients
 id = 0; // Increasing number that is used to assing IDs to players.
 team = 0;
+
 RedScore = 0;
+RedAccuracy = 0;
+RedMiss = 0;
 RedMember = 0;
+
 BlueScore = 0;
+BlueAccuracy = 0;
+BlueMiss = 0;
 BlueMember = 0;
+
 BiggerTeam = 0;
 CalcScore = false;
 
@@ -56,7 +63,9 @@ function create_player(socket, nickname){
 		'last_chat': 0,
 		'muted': mutelist.includes(socket.remoteAddress),
 		'team': team,
-		'score': 0
+		'score': 0,
+		'miss': 0,
+		'accuracy': 0.0
 	};
 	socket.player = player;
 	players[id] = player;
@@ -347,7 +356,9 @@ server.on('connection', function (socket) {
 					var score = data[0];
 					var misses = data[1];
 					var accuracy = data[2];
-					player.score = data[0];
+					player.score = score;
+					player.miss = misses;
+					player.accuracy = accuracy;
 					// Broadcast score. Yeah, there's no server-side verification, too lazy to implement it... :/
 
 					player.broadcastUnsupported(Sender.CreatePacket(packets.BROADCAST_SCORE, [player.id, score]));
@@ -373,11 +384,15 @@ server.on('connection', function (socket) {
 						if(p.team == 0 && p.score != 0)
 						{
 							BlueScore += p.score;
+							BlueAccuracy += p.accuracy;
+							BlueMiss += p.miss;
 							BlueMember += 1;
 						}
 						else if (p.score != 0)
 						{
 							RedScore += p.score;
+							RedAccuracy += p.accuracy;
+							RedMiss += p.miss;
 							RedMember += 1;
 						}
 					}
@@ -386,8 +401,12 @@ server.on('connection', function (socket) {
 				if(BlueMember == 0 || RedMember == 0)
 					break;
 				BiggerTeam = Math.max(BlueMember,RedMember);
-				player.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE, [`Blue Score : ${BlueScore * (Math.round((BiggerTeam / BlueMember) * 100) / 100)}`]));
-				player.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE, [`Red Score : ${RedScore * (Math.round((BiggerTeam / RedMember) * 100) / 100)}`]));
+				BlueScore = Math.round(BlueScore * (BiggerTeam / BlueMember));
+				RedScore = Math.round(RedScore * (BiggerTeam / RedMember));
+				BlueAccuracy = Math.round((BlueAccuracy / BlueMember) * 100) / 100;
+				RedAccuracy = Math.round((RedAccuracy / RedMember) * 100) / 100;
+				player.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE, [`Blue Score : ${BlueScore} Miss : ${BlueMiss} Accuracy : ${BlueAccuracy}`]));
+				player.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE, [`Red Score : ${RedScore} Miss : ${RedMiss} Accuracy : ${RedAccuracy}`]));
 				break;
 			
 			// Chat
