@@ -311,8 +311,12 @@ server.on('connection', function (socket) {
 				for (let p of Object.values(players))
 					p.score = 0;
 				RedScore = 0;
+				RedMiss = 0;
+				RedAccuracy = 0;
 				RedMember = 0;
 				BlueScore = 0;
+				BlueMiss = 0;
+				BlueAccuracy = 0;
 				BlueMember = 0;
 				CalcScore = false;
 				if (player && !player.ready && state == STATES.PREPARING){
