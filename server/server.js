@@ -409,6 +409,7 @@ server.on('connection', function (socket) {
 				RedScore = Math.round(RedScore * (BiggerTeam / RedMember));
 				BlueAccuracy = Math.round((BlueAccuracy / BlueMember) * 100) / 100;
 				RedAccuracy = Math.round((RedAccuracy / RedMember) * 100) / 100;
+				player.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE, [`Server Score : ${BlueScore + RedScore} Miss : ${BlueMiss + RedMiss} Accuracy : ${Math.round(((BlueAccuracy + RedAccuracy) / 2) * 100) / 100}`]));
 				player.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE, [`Blue Score : ${BlueScore} Miss : ${BlueMiss} Accuracy : ${BlueAccuracy}`]));
 				player.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE, [`Red Score : ${RedScore} Miss : ${RedMiss} Accuracy : ${RedAccuracy}`]));
 				break;
