@@ -32,6 +32,7 @@ BlueMiss = 0;
 BlueMember = 0;
 
 BiggerTeam = 0;
+ServerAccuracy = 0;
 CalcScore = false;
 
 const STATES = {
@@ -400,16 +401,17 @@ server.on('connection', function (socket) {
 							RedMember += 1;
 						}
 					}
+					BiggerTeam = Math.max(BlueMember,RedMember);
+					BlueScore = Math.round(BlueScore * (BiggerTeam / BlueMember));
+					RedScore = Math.round(RedScore * (BiggerTeam / RedMember));
+					BlueAccuracy = Math.round((BlueAccuracy / BlueMember) * 100) / 100;
+					RedAccuracy = Math.round((RedAccuracy / RedMember) * 100) / 100;
+					ServerAccuracy = Math.round(((BlueAccuracy + RedAccuracy) / 2) * 100) / 100;
 					CalcScore = true;
 				}
+				player.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE, [`Server Score : ${BlueScore + RedScore} Miss : ${BlueMiss + RedMiss} Accuracy : ${ServerAccuracy}`]));
 				if(BlueMember == 0 || RedMember == 0)
-					break;
-				BiggerTeam = Math.max(BlueMember,RedMember);
-				BlueScore = Math.round(BlueScore * (BiggerTeam / BlueMember));
-				RedScore = Math.round(RedScore * (BiggerTeam / RedMember));
-				BlueAccuracy = Math.round((BlueAccuracy / BlueMember) * 100) / 100;
-				RedAccuracy = Math.round((RedAccuracy / RedMember) * 100) / 100;
-				player.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE, [`Server Score : ${BlueScore + RedScore} Miss : ${BlueMiss + RedMiss} Accuracy : ${Math.round(((BlueAccuracy + RedAccuracy) / 2) * 100) / 100}`]));
+				break;
 				player.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE, [`Blue Score : ${BlueScore} Miss : ${BlueMiss} Accuracy : ${BlueAccuracy}`]));
 				player.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE, [`Red Score : ${RedScore} Miss : ${RedMiss} Accuracy : ${RedAccuracy}`]));
 				break;
