@@ -44,6 +44,10 @@
 	{"id": "SUPPORTED", "args": []},
 	{"id": "SEND_CURRENT_INFO", "args": ["INT","INT","INT"]},
 	{"id": "BROADCAST_CURRENT_INFO", "args": ["UBYTE", "INT","INT","INT"]},
-	{"id": "KEYPRESSED", "args": ["INT","INT","INT","INT"]}
+	{"id": "KEYPRESSED", "args": ["INT","INT","INT","INT"]},
+	{"id": "VERSION", "args": ["INT"]},
+
+	{"id": "CUSTOMPACKETSTRING", "args": ["STRING","STRING"]},
+	{"id": "CUSTOMPACKETINT", "args": ["STRING","INT"]}
 ]
 }

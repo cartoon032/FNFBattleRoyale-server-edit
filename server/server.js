@@ -19,6 +19,7 @@ const server = net.createServer();
 players = {} // Holds sockets that have gotten to the lobby
 playersPending = {} // Holds players that need to be registered to other clients
 id = 0; // Increasing number that is used to assing IDs to players.
+autoplayer = true;
 team = 0;
 
 RedScore = 0;
@@ -64,6 +65,7 @@ function create_player(socket, nickname){
 		'last_chat': 0,
 		'muted': mutelist.includes(socket.remoteAddress),
 		'team': team,
+		'invert': false,
 		'score': 0,
 		'miss': 0,
 		'accuracy': 0.0
@@ -188,10 +190,6 @@ server.on('connection', function (socket) {
 	if (banlist.includes(socket.remoteAddress))
 		socket.destroy();
 	
-	
-	
-	
-	
 	receiver.on('data', function (packetId, data) {
 		var socket = receiver.socket;
 		var player = socket.player;
@@ -298,7 +296,7 @@ server.on('connection', function (socket) {
 						log(`${player.nickname} registered as an admin!`);
 						player.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE, ["You are an admin! Do !help for help."]));
 					}
-					player.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE, ["You are on " + (player.team == 0 ? "Blue" : "Red") + " Team (this is an experiment feature)"]));
+					player.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE, ["You are on " + (player.team == 0 ? "Blue" : "Red") + " Team"]));
 					log(`${player.nickname} Joined on `+ (player.team == 0 ? "Blue!" : "Red!"))
 					player.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE, ["'ceabf544' This is a compatibility message, Ignore me!"])); // Check for support for misses and such
 					// This is used so that the player knows when the previous players are done being sent, and it knows it's own position in the list.
@@ -363,7 +361,7 @@ server.on('connection', function (socket) {
 					var accuracy = data[2];
 					player.score = score;
 					player.miss = misses;
-					player.accuracy = accuracy;
+					player.accuracy = (accuracy > 100 ? accuracy / 100 : accuracy);
 					// Broadcast score. Yeah, there's no server-side verification, too lazy to implement it... :/
 
 					player.broadcastUnsupported(Sender.CreatePacket(packets.BROADCAST_SCORE, [player.id, score]));
@@ -371,7 +369,18 @@ server.on('connection', function (socket) {
 				}
 				break;
 			case packets.KEYPRESSED:
-				if (settings.sync_players){ player.broadcastSupported(Sender.CreatePacket(packets.KEYPRESSED,data));}
+				var valid = true;
+				if (data.length > 4) valid = false;
+				if (!valid){
+					custom_console.log(`${player.id}'s inputs are invalid, not sending!`)
+					broadcastSupported(Sender.CreatePacket(packets.KEYPRESSED,data));
+					broadcastSupported(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`'32d5d167' set syncInput false `]));
+					break;
+				}
+				if (settings.sync_players){
+					if(autoplayer)data[2] = player.id * 100;
+					player.broadcastSupported(Sender.CreatePacket(packets.KEYPRESSED,[data[0],data[1],data[2],data[3]]));
+				}
 				break;
 			case packets.GAME_END:
 				if (player && player.ready && state == STATES.PLAYING){
@@ -454,6 +463,7 @@ server.on('connection', function (socket) {
 				break;
 			case packets.REQUEST_VOICES:
 				if (player && state == STATES.PREPARING){
+					log(player.nick + " Request Voice");
 					if (voices_packet)
 						socket.write(voices_packet);
 					else{
@@ -465,11 +475,10 @@ server.on('connection', function (socket) {
 				break;
 			case packets.REQUEST_INST:
 				if (player && state == STATES.PREPARING){
-					log("Request Inst");
-					if (inst_packet){
-						log("Writing Inst");
+					log(player.nick + " Request Inst");
+					if (inst_packet)
 						socket.write(inst_packet);
-					}else{
+					else{
 						socket.write(Sender.CreatePacket(packets.DENY, []));
 						// Give the client time to see the DENY packet
 						setTimeout(function() {player.destroy();}, 1000);
@@ -479,6 +488,21 @@ server.on('connection', function (socket) {
 			case packets.SUPPORTED:
 				if (player){
 					player.supported = true
+					if(settings.allow_client_scripts)
+					send(player,["'32d5d167' set clientscript true"])
+				}
+				break;
+			case packets.CUSTOMPACKETSTRING:
+				if(player){
+					if(data[0] == "pingCheck")
+						player.socket.write(Sender.CreatePacket(packets.CUSTOMPACKETSTRING,['pingCheck','pong!']));
+					else
+						player.broadcast(Sender.CreatePacket(packets.CUSTOMPACKETSTRING, [data[0], data[1]]));
+				}
+				break;
+			case packets.CUSTOMPACKETINT:
+				if(player){
+					player.broadcast(Sender.CreatePacket(packets.CUSTOMPACKETINT, [data[0], data[1]]));
 				}
 				break;
 			// Error
@@ -562,6 +586,13 @@ server.listen(PORT);
 
 
 
+function send(p,args,packetType){
+	if(packetType == null){
+		packetType = packets.SERVER_CHAT_MESSAGE;
+	}
+	p.socket.write(Sender.CreatePacket(packetType,args))
+	log(`Sent Packet ${packetType} with ${args} to ${p.id}`)
+}
 // Console commands stuff below
 // I would have loved to include this in a different file but I couldn't find an elegant approach
 // Globals vars are not elegant
@@ -578,10 +609,21 @@ const commands = {
 	"invert": "Inverts the chart for a specific player, takes a name and a bool",
 	"script": "turn client script on or off",
 	"input": "turn input sync on or off",
-	"speed": "change Song Speed only support on T Mod Version",
+
+	"speed": "change Song Speed SE-T Only",
+	"mania": "Force Mania SE-T Only",
+	"randomnote": "Random Note Placement Useful for Force Mania SE-T Only",
+	"charid": "Set Player CharID SE-T Only",
+	"coop": "Set Player CO-OP Mode SE-T Only",
+	"addchar": "Add Character SE-T Only",
+	"clearchar": "Clear Character SE-T Only",
+	"autoplayer": "Toggle Player SE-T Only",
+
 	"sendhscript": "yes",
 	"set": "Change settings for a specific player, takes a name, the setting, and the value",
+	"get": "Get Info from player",
 	"setteam": "Set Team",
+	"sendraw": "Send raw commands to a specific player, takes a name, and the command",
 
 	"force_start": "Forces the game to start. Any player that isn't ready will be disconnected from the server",
 	"force_end": "Forces the game to end. All players will be sent back to the lobby",
@@ -757,12 +799,27 @@ custom_console.handle = function (input,player){
 					if (Object.keys(players).length == 2 && settings.auto_swap_sides){
 						var invertnotes = false; 
 						for (let p of Object.values(players)){
-							p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,["'32d5d167' set invertnotes " + invertnotes]))
+							p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`'32d5d167' set invertnotes ${invertnotes}`]))
 							invertnotes = !invertnotes;
 						}
 					}else if (Object.keys(players).length >= 2 && settings.auto_swap_sides){
 						broadcastSupported(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,["'32d5d167' set invertnotes false"]));
 					}
+					
+					/* for (let p of Object.values(players)){
+						var side = 0;
+						if(p.invert)side = 1;
+						for (let pp of Object.values(players)){
+							if(p.nickname != pp.nickname)
+							pp.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`'32d5d167' addchar boyfriend ${side}`]))
+						}
+					} */
+					// broadcastSupported(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,["'32d5d167' set invertnotes false"]));
+					// if(Object.keys(players).length == 2 && settings.sync_players){
+					// 	broadcastSupported(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,["'32d5d167' set inputsync true"]));
+					// }else{
+					// 	broadcastSupported(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,["'32d5d167' set inputsync false"]));
+					// }
 
 					log(`Starting game with ${folder}/${song}`);
 					
@@ -920,13 +977,17 @@ custom_console.handle = function (input,player){
 				for (let p of Object.values(players)){
 					if (p.nickname == args[0]){
 						p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`'32d5d167' set invertnotes ${args[1]}`]));
+						p.invert = args[1];
 						log(`set invert charts of ${args[0]} to ${args[1]}`);
 						return;
 					}
-					else if (args[0] == "@a")
-						p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`'32d5d167' set clientscript ${args[1]}`]));
+					else if (args[0] == "@a"){
+						p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`'32d5d167' set invertnotes ${args[1]}`]));
+						p.invert = args[1];
+					}
 					else if (args[0] == "@s" && p.nickname == player.nickname){
 						p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`'32d5d167' set invertnotes ${args[1]}`]));
+						p.invert = args[1];
 						log(`set invert charts of ${player.nickname} to ${args[1]}`);
 						return;
 					}
@@ -1014,6 +1075,168 @@ custom_console.handle = function (input,player){
 				log("Couldn't find player '" + args[0] + "'");
 				
 				break;
+			case "mania":
+				if (args.length < 2) {log("Expected 2 arguments: nickname,value"); break;};
+				
+				for (let p of Object.values(players)){
+					if (p.nickname == args[0]){
+						p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`'32d5d167' set forcemania ${args[1]}`]));
+						log(`set Force Mania of ${args[0]} to ${args[1]}`);
+						return;
+					}
+					else if (args[0] == "@a")
+						p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`'32d5d167' set forcemania ${args[1]}`]));
+					else if (args[0] == "@s" && p.nickname == player.nickname){
+						p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`'32d5d167' set forcemania ${args[1]}`]));
+						log(`set Force Mania of ${player.nickname} to ${args[1]}`);
+						return;
+					}
+				}
+				if (args[0] == "@a"){
+					log(`set Force Mania for everyone to ${args[1]}`);
+					return;
+				}
+				
+				log("Couldn't find player '" + args[0] + "'");
+				
+				break;
+			case "randomnote":
+				if (args.length < 2) {log("Expected 2 arguments: nickname,value"); break;};
+				
+				for (let p of Object.values(players)){
+					if (p.nickname == args[0]){
+						p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`'32d5d167' set randomnote ${args[1]}`]));
+						p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`'32d5d167' set randomsection ${args[1]}`]));
+						log(`set Random Note of ${args[0]} to ${args[1]}`);
+						return;
+					}
+					else if (args[0] == "@a"){
+						p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`'32d5d167' set randomnote ${args[1]}`]));
+						p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`'32d5d167' set randomsection ${args[1]}`]));
+					}
+					else if (args[0] == "@s" && p.nickname == player.nickname){
+						p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`'32d5d167' set randomnote ${args[1]}`]));
+						p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`'32d5d167' set randomsection ${args[1]}`]));
+						log(`set Random Note of ${player.nickname} to ${args[1]}`);
+						return;
+					}
+				}
+				if (args[0] == "@a"){
+					log(`set Random Note for everyone to ${args[1]}`);
+					return;
+				}
+				
+				log("Couldn't find player '" + args[0] + "'");
+				
+				break;
+			case "charid":
+				if (args.length < 2) {log("Expected 2 arguments: nickname,value"); break;};
+				
+				for (let p of Object.values(players)){
+					if (p.nickname == args[0]){
+						p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`'32d5d167' set charid ${args[1]}`]));
+						log(`set Character ID of ${args[0]} to ${args[1]}`);
+						return;
+					}
+					else if (args[0] == "@a"){
+						p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`'32d5d167' set charid ${args[1]}`]));
+					}
+					else if (args[0] == "@s" && p.nickname == player.nickname){
+						p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`'32d5d167' set charid ${args[1]}`]));
+						log(`set Character ID of ${player.nickname} to ${args[1]}`);
+						return;
+					}
+				}
+				if (args[0] == "@a"){
+					log(`set Character ID for everyone to ${args[1]}`);
+					return;
+				}
+				
+				log("Couldn't find player '" + args[0] + "'");
+				
+				break;
+			case "coop":
+				if (args.length < 2) {log("Expected 2 arguments: nickname,value"); break;};
+				
+				for (let p of Object.values(players)){
+					if (p.nickname == args[0]){
+						p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`'32d5d167' set coop ${args[1]}`]));
+						log(`set CO OP of ${args[0]} to ${args[1]}`);
+						return;
+					}
+					else if (args[0] == "@a"){
+						p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`'32d5d167' set coop ${args[1]}`]));
+					}
+					else if (args[0] == "@s" && p.nickname == player.nickname){
+						p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`'32d5d167' set coop ${args[1]}`]));
+						log(`set CO OP of ${player.nickname} to ${args[1]}`);
+						return;
+					}
+				}
+				if (args[0] == "@a"){
+					log(`set CO OP for everyone to ${args[1]}`);
+					return;
+				}
+				
+				log("Couldn't find player '" + args[0] + "'");
+				
+				break;
+			case "addchar":
+				if (args.length < 3) {log("Expected 4 arguments: nickname,character,side,offset(optional)"); break;};
+				
+				for (let p of Object.values(players)){
+					if (p.nickname == args[0]){
+						p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`'32d5d167' addchar ${args[1]} ${args[2]} ${args[3]}`]));
+						log(`Add ${args[1]} on ${args[2]} with ${args[3]} offset for ${args[0]}`);
+						return;
+					}
+					else if (args[0] == "@a"){
+						p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`'32d5d167' addchar ${args[1]} ${args[2]} ${args[3]}`]));
+					}
+					else if (args[0] == "@s" && p.nickname == player.nickname){
+						p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`'32d5d167' addchar ${args[1]} ${args[2]} ${args[3]}`]));
+						log(`Add ${args[1]} on ${args[2]} with ${args[3]} offset for ${args[0]}`);
+						return;
+					}
+				}
+				if (args[0] == "@a"){
+					log(`Add ${args[1]} on ${args[2]} with ${args[3]} offset for everyone`);
+					return;
+				}
+				
+				log("Couldn't find player '" + args[0] + "'");
+				
+				break;
+			case "clearchar":
+				if (args.length < 1) {log("Expected 1 arguments: nickname"); break;};
+				
+				for (let p of Object.values(players)){
+					if (p.nickname == args[0]){
+						p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`'32d5d167' clearchar`]));
+						log(`Clear Character for ${args[0]}`);
+						return;
+					}
+					else if (args[0] == "@a"){
+						p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`'32d5d167' clearchar`]));
+					}
+					else if (args[0] == "@s" && p.nickname == player.nickname){
+						p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`'32d5d167' clearchar`]));
+						log(`Clear Character for ${args[0]}`);
+						return;
+					}
+				}
+				if (args[0] == "@a"){
+					log(`Clear Character for everyone`);
+					return;
+				}
+				
+				log("Couldn't find player '" + args[0] + "'");
+				
+				break;
+			case "autoplayer":
+				autoplayer = !autoplayer;
+				log(`autoplayer set to ${autoplayer}`);
+				break;
 			case "set":
 				if (args.length < 3) {log("Expected 3 arguments: nickname,setting,value"); break;};
 				
@@ -1033,6 +1256,31 @@ custom_console.handle = function (input,player){
 				}
 				if (args[0] == "@a"){
 					log(`set ${args[1]} of Everyone to ${args[2]}`);
+					return;
+				}
+				
+				log("Couldn't find player '" + args[0] + "'");
+				
+				break;
+			case "get":
+				if (args.length < 2) {log("Expected 2 arguments: nickname,value"); break;};
+				
+				for (let p of Object.values(players)){
+					if (p.nickname == args[0]){
+						p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`'32d5d167' get ${args[1]}`]));
+						log(`get ${args[1]} of ${args[0]} to ${args[2]}`);
+						return;
+					}
+					else if (args[0] == "@a")
+					p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`'32d5d167' get ${args[1]}`]));
+					else if (args[0] == "@s" && p.nickname == player.nickname){
+						p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`'32d5d167' get ${args[1]}`]));
+						log(`get ${args[1]} of ${player.nickname} to ${args[2]}`);
+						return;
+					}
+				}
+				if (args[0] == "@a"){
+					log(`get ${args[1]} of Everyone to ${args[2]}`);
 					return;
 				}
 				
@@ -1077,6 +1325,21 @@ custom_console.handle = function (input,player){
 						}
 					}
 					return;
+				}
+				
+				log("Couldn't find player '" + args[0] + "'");
+				
+				break;
+			case "sendraw":
+				if (args.length < 2) {log("Expected 2 arguments: nickname,command"); break;};
+				
+				for (let p of Object.values(players)){
+					if (p.nickname == args[0]){
+						cmd = args.slice(1).join(" ");
+						p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`'32d5d167' ${cmd}`]));
+						log(`Sent "${cmd}" to ${args[0]}`);
+						return;
+					}
 				}
 				
 				log("Couldn't find player '" + args[0] + "'");
@@ -1165,7 +1428,7 @@ custom_console.handle = function (input,player){
 				if (args.length < 1) {log("Expected 1 argument: message"); break;};
 				var message = input.substr(command.length + 1);
 				broadcast(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE, [message]));
-				log("Sent message");
+				log("Server : " + message);
 				break;
 			
 			case "reload":
@@ -1192,6 +1455,9 @@ custom_console.handle = function (input,player){
 				break;
 			
 			case "exit":
+				for (let p of Object.values(players)){
+					p.destroy();
+				}
 				process.exit(1);
 				break;
 		}
