@@ -1,4 +1,5 @@
 const fs = require('fs');
+const path = require('path');
 const net = require('net');
 const custom_console = require('./custom_console');
 let log = custom_console.log;
@@ -34,7 +35,6 @@ BlueMember = 0;
 
 BiggerTeam = 0;
 ServerAccuracy = 0;
-CalcScore = false;
 
 const STATES = {
 	'LOBBY': 0,
@@ -45,9 +45,11 @@ state = STATES.LOBBY;
 
 in_game_count = 0;
 
-
 song = "";
 folder = "";
+songLists = "";
+listVersion = 0;
+blockedFiles = ['picospeaker.json','dialogue-end.json','dialogue.json','_meta.json','meta.json','config.json','events.json'];
 
 voices_packet = null;
 inst_packet = null;
@@ -193,10 +195,9 @@ server.on('connection', function (socket) {
 	receiver.on('data', function (packetId, data) {
 		var socket = receiver.socket;
 		var player = socket.player;
-		if (!player){
-			custom_console.log(`A client without a player is sending a packet ${packetId}`);
-		}
+		if (!player) log(`A client without a player is sending a packet ${packetId}`);
 
+		// if(player) custom_console.log(`Got ${packetId} / ${data} from ${player.nickname}`);
 		switch (packetId){
 			// Setup
 			case packets.SEND_CLIENT_TOKEN:
@@ -317,7 +318,6 @@ server.on('connection', function (socket) {
 				BlueMiss = 0;
 				BlueAccuracy = 0;
 				BlueMember = 0;
-				CalcScore = false;
 				if (player && !player.ready && state == STATES.PREPARING){
 					player.ready = true;
 					in_game_count++;
@@ -388,41 +388,35 @@ server.on('connection', function (socket) {
 					player.ready = false;
 					if (in_game_count == 0){
 						end_game();
-						
-					}
-
-				}
-				if(!CalcScore)
-				{
-					for (let p of Object.values(players)){
-						if(p.team == 0 && p.score != 0)
-						{
-							BlueScore += p.score;
-							BlueAccuracy += p.accuracy;
-							BlueMiss += p.miss;
-							BlueMember += 1;
+						for (let p of Object.values(players)){
+							if(p.team == 0 && p.score != 0)
+							{
+								BlueScore += p.score;
+								BlueAccuracy += p.accuracy;
+								BlueMiss += p.miss;
+								BlueMember += 1;
+							}
+							else if (p.score != 0)
+							{
+								RedScore += p.score;
+								RedAccuracy += p.accuracy;
+								RedMiss += p.miss;
+								RedMember += 1;
+							}
 						}
-						else if (p.score != 0)
-						{
-							RedScore += p.score;
-							RedAccuracy += p.accuracy;
-							RedMiss += p.miss;
-							RedMember += 1;
-						}
+						BiggerTeam = Math.max(BlueMember,RedMember);
+						BlueScore = Math.round(BlueScore * (BiggerTeam / BlueMember));
+						RedScore = Math.round(RedScore * (BiggerTeam / RedMember));
+						BlueAccuracy = Math.round((BlueAccuracy / BlueMember) * 100) / 100;
+						RedAccuracy = Math.round((RedAccuracy / RedMember) * 100) / 100;
+						ServerAccuracy = Math.round(((BlueAccuracy + RedAccuracy) / 2) * 100) / 100;
+						player.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE, [`Server Score : ${BlueScore + RedScore} Miss : ${BlueMiss + RedMiss} Accuracy : ${ServerAccuracy}`]));
+						if(BlueMember == 0 || RedMember == 0)
+							break;
+						player.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE, [`Blue Score : ${BlueScore} Miss : ${BlueMiss} Accuracy : ${BlueAccuracy}`]));
+						player.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE, [`Red Score : ${RedScore} Miss : ${RedMiss} Accuracy : ${RedAccuracy}`]));
 					}
-					BiggerTeam = Math.max(BlueMember,RedMember);
-					BlueScore = Math.round(BlueScore * (BiggerTeam / BlueMember));
-					RedScore = Math.round(RedScore * (BiggerTeam / RedMember));
-					BlueAccuracy = Math.round((BlueAccuracy / BlueMember) * 100) / 100;
-					RedAccuracy = Math.round((RedAccuracy / RedMember) * 100) / 100;
-					ServerAccuracy = Math.round(((BlueAccuracy + RedAccuracy) / 2) * 100) / 100;
-					CalcScore = true;
 				}
-				player.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE, [`Server Score : ${BlueScore + RedScore} Miss : ${BlueMiss + RedMiss} Accuracy : ${ServerAccuracy}`]));
-				if(BlueMember == 0 || RedMember == 0)
-				break;
-				player.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE, [`Blue Score : ${BlueScore} Miss : ${BlueMiss} Accuracy : ${BlueAccuracy}`]));
-				player.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE, [`Red Score : ${RedScore} Miss : ${RedMiss} Accuracy : ${RedAccuracy}`]));
 				break;
 			
 			// Chat
@@ -436,7 +430,7 @@ server.on('connection', function (socket) {
 						return;
 					}
 					
-					if (message.length > 0 && message[0] != ' ' && message.length <= 80){
+					if (message.length > 0 && message[0] != ' ' && (message.length <= 80 || player.admin)){
 						custom_console.log(`${player.nickname} : ${message}`)
 						if (message.startsWith('/')){
 							commandHandle(message.substring(1),player)
@@ -462,26 +456,28 @@ server.on('connection', function (socket) {
 					socket.write(chart_packet);
 				break;
 			case packets.REQUEST_VOICES:
-				if (player && state == STATES.PREPARING){
-					log(player.nick + " Request Voice");
+				if (player && (state == STATES.PREPARING || state == STATES.LOBBY)){
+					log(player.nickname + " Request Voice");
 					if (voices_packet)
 						socket.write(voices_packet);
 					else{
 						socket.write(Sender.CreatePacket(packets.DENY, []));
 						// Give the client time to see the DENY packet
-						setTimeout(function() {player.destroy();}, 1000);
+						if(state == STATES.PREPARING)
+							setTimeout(function() {player.destroy();}, 1000);
 					}
 				}
 				break;
 			case packets.REQUEST_INST:
-				if (player && state == STATES.PREPARING){
-					log(player.nick + " Request Inst");
+				if (player && (state == STATES.PREPARING || state == STATES.LOBBY)){
+					log(player.nickname + " Request Inst");
 					if (inst_packet)
 						socket.write(inst_packet);
 					else{
 						socket.write(Sender.CreatePacket(packets.DENY, []));
 						// Give the client time to see the DENY packet
-						setTimeout(function() {player.destroy();}, 1000);
+						if(state == STATES.PREPARING)
+							setTimeout(function() {player.destroy();}, 1000);
 					}
 				}
 				break;
@@ -494,10 +490,30 @@ server.on('connection', function (socket) {
 				break;
 			case packets.CUSTOMPACKETSTRING:
 				if(player){
-					if(data[0] == "pingCheck")
-						player.socket.write(Sender.CreatePacket(packets.CUSTOMPACKETSTRING,['pingCheck','pong!']));
-					else
-						player.broadcast(Sender.CreatePacket(packets.CUSTOMPACKETSTRING, [data[0], data[1]]));
+					switch(data[0]){ // WHY THE FUCK DO I NEED BREAK ON EVERY END OF CASE
+						case "pingCheck":
+							player.socket.write(Sender.CreatePacket(packets.CUSTOMPACKETSTRING,['pingCheck','pong!']));
+							break;
+						case "REQUEST_SongFolder":
+							player.socket.write(Sender.CreatePacket(packets.CUSTOMPACKETSTRING,['SetFolder',`${folder} ${song}`]));
+							break;
+						case "REQUEST_SongName":
+							if(folder !== "" && song !== "")
+								player.socket.write(Sender.CreatePacket(packets.CUSTOMPACKETSTRING,['SetSong',`${folder} ${song}`]));
+							break;
+						case "REQUEST_listVersion":
+							player.socket.write(Sender.CreatePacket(packets.CUSTOMPACKETINT,['listVersion',listVersion]));
+							break;
+						case "REQUEST_SongLists":
+							player.socket.write(Sender.CreatePacket(packets.CUSTOMPACKETSTRING,['Song',songLists]));
+							break;
+						case "Set_Status":
+							player.broadcast(Sender.CreatePacket(packets.CUSTOMPACKETSTRING,['Set_Status',`${player.id}/*/${data[1]}`]));
+							break;
+						default:
+							player.broadcast(Sender.CreatePacket(packets.CUSTOMPACKETSTRING, [data[0], data[1]]));
+							break;
+					}
 				}
 				break;
 			case packets.CUSTOMPACKETINT:
@@ -575,6 +591,22 @@ function end_game(){
 
 
 server.on('listening', function () {
+	songLists = "";
+	const files = fs.readdirSync('data/');
+	files.forEach(function(file) {
+		if (fs.lstatSync(path.join('data/', file)).isDirectory()) {
+			const folderName = path.basename(file);
+			const subFiles = fs.readdirSync(path.join('data/', file));
+			subFiles.forEach(function(subFile) {
+				if (path.extname(subFile) === '.json' && !blockedFiles.includes(subFile)) {
+				const chartName = path.basename(subFile, '.json');
+				songLists += `${chartName},${folderName} `;
+			}
+		});
+		}
+	});
+	listVersion++;
+	log("SongLists have been cached");
 	log("Server started on port " + PORT);
 });
 
@@ -583,8 +615,6 @@ server.maxConnections = 256;
 
 const PORT = process.env.PORT || settings.port;
 server.listen(PORT);
-
-
 
 function send(p,args,packetType){
 	if(packetType == null){
@@ -609,6 +639,8 @@ const commands = {
 	"invert": "Inverts the chart for a specific player, takes a name and a bool",
 	"script": "turn client script on or off",
 	"input": "turn input sync on or off",
+	"op": "give player admin permission temporary until they left the server",
+	"deop": "take away player admin permission",
 
 	"speed": "change Song Speed SE-T Only",
 	"mania": "Force Mania SE-T Only",
@@ -753,6 +785,17 @@ var setSong = function(file,fold){
 	
 	log("Set song to " + folder + "/" + song + ". " + (audio ? ("Found audio files at data/" + folder) : ("Did not find audio files at data/" + folder)) + ".");
 	broadcast(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`Song was set to ${song}`]));
+	broadcast(Sender.CreatePacket(packets.CUSTOMPACKETSTRING,['SetSong',`${folder} ${song}`]));
+	// Load the voices & inst from file
+	// If they don't exist, a DENY packet will be sent when a player requests them
+	let voices_path = 'data/' + folder + '/Voices.ogg';
+	let inst_path = 'data/' + folder + '/Inst.ogg';
+	voices_packet = null;
+	if (fs.existsSync(voices_path))
+		voices_packet = Sender.CreatePacket(packets.SEND_VOICES, [fs.readFileSync(voices_path)]);
+	inst_packet = null;
+	if (fs.existsSync(inst_path))
+		inst_packet = Sender.CreatePacket(packets.SEND_INST, [fs.readFileSync(inst_path)]);
 	return;
 }
 
@@ -805,21 +848,6 @@ custom_console.handle = function (input,player){
 					}else if (Object.keys(players).length >= 2 && settings.auto_swap_sides){
 						broadcastSupported(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,["'32d5d167' set invertnotes false"]));
 					}
-					
-					/* for (let p of Object.values(players)){
-						var side = 0;
-						if(p.invert)side = 1;
-						for (let pp of Object.values(players)){
-							if(p.nickname != pp.nickname)
-							pp.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`'32d5d167' addchar boyfriend ${side}`]))
-						}
-					} */
-					// broadcastSupported(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,["'32d5d167' set invertnotes false"]));
-					// if(Object.keys(players).length == 2 && settings.sync_players){
-					// 	broadcastSupported(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,["'32d5d167' set inputsync true"]));
-					// }else{
-					// 	broadcastSupported(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,["'32d5d167' set inputsync false"]));
-					// }
 
 					log(`Starting game with ${folder}/${song}`);
 					
@@ -836,24 +864,11 @@ custom_console.handle = function (input,player){
 					
 					chart_packet = Sender.CreatePacket(packets.SEND_CHART, [chart]);
 					
-					let voices_path = 'data/' + folder + '/Voices.ogg';
-					let voices_path2 = 'songs/' + song_name + '/Voices.ogg';
-					let inst_path = 'data/' + folder + '/Inst.ogg';
-					let inst_path2 = 'songs/' + song_name + '/Inst.ogg'
+					let script_path = 'data/' + folder + '/script.hscript';
 					
-					// Load the voices & inst from file
-					// If they don't exist, a DENY packet will be sent when a player requests them
-					voices_packet = null;
-					if (fs.existsSync(voices_path))
-						voices_packet = Sender.CreatePacket(packets.SEND_VOICES, [fs.readFileSync(voices_path)]);
-					else if (fs.existsSync(voices_path2))
-						voices_packet = Sender.CreatePacket(packets.SEND_VOICES, [fs.readFileSync(voices_path2)]);
-					
-					inst_packet = null;
-					if (fs.existsSync(inst_path))
-						inst_packet = Sender.CreatePacket(packets.SEND_INST, [fs.readFileSync(inst_path)]);
-					else if (fs.existsSync(inst_path2))
-						inst_packet = Sender.CreatePacket(packets.SEND_INST, [fs.readFileSync(inst_path2)]);
+					// try send script hope it just work
+					if(fs.existsSync(script_path))
+						broadcast(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE,[`'32d5d167' sendhscript temp-${song_name} ${fs.readFileSync(script_path)}`]));
 					
 					// Tell all players that the game is starting
 					broadcast(Sender.CreatePacket(packets.GAME_START, [song, folder]));
@@ -1208,7 +1223,7 @@ custom_console.handle = function (input,player){
 				
 				break;
 			case "clearchar":
-				if (args.length < 1) {log("Expected 1 arguments: nickname"); break;};
+				if (args.length < 1) {log("Expected 1 argument: nickname"); break;};
 				
 				for (let p of Object.values(players)){
 					if (p.nickname == args[0]){
@@ -1261,6 +1276,32 @@ custom_console.handle = function (input,player){
 				
 				log("Couldn't find player '" + args[0] + "'");
 				
+				break;
+			case "op":
+				if (args.length < 1) {log("Expected 1 argument: nickname"); break;};
+				
+				for (let p of Object.values(players)){
+					if (p.nickname == args[0]){
+						p.admin = true;
+						p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE, ["You are now an admin! Do !help for help."]));
+						log(args[0] + " are now an admin!");
+						return;
+					}
+				}
+				log("Couldn't find player '" + args[0] + "'");
+				break;
+			case "deop":
+				if (args.length < 1) {log("Expected 1 argument: nickname"); break;};
+				
+				for (let p of Object.values(players)){
+					if (p.nickname == args[0]){
+						p.admin = false;
+						p.socket.write(Sender.CreatePacket(packets.SERVER_CHAT_MESSAGE, ["You are no longer an admin! :("]));
+						log(args[0] + " are no longer an admin!");
+						return;
+					}
+				}
+				log("Couldn't find player '" + args[0] + "'");
 				break;
 			case "get":
 				if (args.length < 2) {log("Expected 2 arguments: nickname,value"); break;};
@@ -1448,6 +1489,22 @@ custom_console.handle = function (input,player){
 						p.muted = mutelist.includes(p.socket.remoteAddress);
 					}
 				});
+				songLists = "";
+				const files = fs.readdirSync('data/');
+				files.forEach(function(file) {
+					if (fs.lstatSync(path.join('data/', file)).isDirectory()) {
+						const folderName = path.basename(file);
+						const subFiles = fs.readdirSync(path.join('data/', file));
+						subFiles.forEach(function(subFile) {
+							if (path.extname(subFile) === '.json' && !blockedFiles.includes(subFile)) {
+							const chartName = path.basename(subFile, '.json');
+							songLists += `${chartName},${folderName} `;
+						}
+					});
+					}
+				});
+				listVersion++;
+				log("SongLists have been recached");
 				break;
 			
 			case "cls":
