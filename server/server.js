@@ -491,9 +491,6 @@ server.on('connection', function (socket) {
 			case packets.CUSTOMPACKETSTRING:
 				if(player){
 					switch(data[0]){ // WHY THE FUCK DO I NEED BREAK ON EVERY END OF CASE
-						case "pingCheck":
-							player.socket.write(Sender.CreatePacket(packets.CUSTOMPACKETSTRING,['pingCheck','pong!']));
-							break;
 						case "REQUEST_SongFolder":
 							player.socket.write(Sender.CreatePacket(packets.CUSTOMPACKETSTRING,['SetFolder',`${folder} ${song}`]));
 							break;
